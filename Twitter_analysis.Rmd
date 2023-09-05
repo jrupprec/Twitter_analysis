@@ -32,6 +32,7 @@ library(stopwords)
 library(stargazer)
 library(purrr)
 library(stringr)
+library(MASS)
 ```
 
 ## Reading in the Data
@@ -366,11 +367,24 @@ complete_df <- data_tweets %>%
 ```{r}
 # drop observations which don't have mean_sentiment, no. pos/neg words
 complete_df <- complete_df %>% 
-  filter(!if_all(c( "mean_sentiment_party", "mean_sentiment_tweet", "number_positive_words", "number_negative_words"), is.na))
+  mutate(log_retweets = log(retweet_count)) %>%
+    filter(!if_all(c( "mean_sentiment_party", "mean_sentiment_tweet", "number_positive_words", "number_negative_words", "log_retweets"), is.na)) %>%
+  filter(!if_all("log_retweets", is.infinite))
 
-rt_model <- lm(std_rt ~ followers_count + statuses_count + friends_count + mean_sentiment_party + mean_sentiment_tweet + no_hashtags + no_mentions, data = complete_df)
+# observe data of retweets (resembles log-normal distribution)
+ggplot(complete_df, aes(x = log_retweets))+
+  geom_density() +
+  xlim(0,10) # extreme kurtosis
 
-complete_df["predictions"] <- predict(rt_model)
+ggplot(complete_df, aes(x = log_retweets))+
+  geom_histogram(bins = 50) # extreme kurtosis
+  
+rt_model <- glm.nb(log_retweets ~ followers_count + statuses_count + friends_count + mean_sentiment_party + mean_sentiment_tweet + no_hashtags + no_mentions, data = complete_df)
+
+
+summary(rt_model)
 
 ```
+
+
 
