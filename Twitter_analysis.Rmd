@@ -1,0 +1,376 @@
+---
+title: "Twitter_Analysis"
+output:
+  html_document: default
+  pdf_document: default
+editor: visual
+toc: yes
+editor_options: 
+  chunk_output_type: console
+
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE, fig.width=12, fig.height=8)
+```
+
+# Introduction
+
+```{r}
+#load libraries
+library(knitr)
+library(feather)
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+library(tidytext)
+library(glue)
+library(stringr)
+library(textdata)
+library(stopwords)
+library(stargazer)
+library(purrr)
+library(stringr)
+```
+
+## Reading in the Data
+
+```{r}
+# Daten Einlesen ####
+data_tweets <- read_feather("data_tweets_de_bundestag_session_20.feather")
+data_users <- read_feather("data_users_de_bundestag_session_20.feather")
+
+
+# variablen rekodieren
+data_tweets$retweet_count <- as.numeric(data_tweets$retweet_count)
+data_tweets$followers_count <- as.numeric(data_tweets$followers_count)
+data_tweets$statuses_count <- as.numeric(data_tweets$statuses_count)
+data_tweets$friends_count <- as.numeric(data_tweets$friends_count)
+data_tweets$characters_count <- as.numeric(nchar(data_tweets$text))
+                                  
+
+
+
+# Auf Politiker aggregieren
+data_tweets <- data_tweets %>%
+  mutate(no_hashtags = str_count(text,"#"), # number of hashtags in post
+         no_mentions = str_count(text, "@"))  %>% # number of mentions in post
+  group_by(last_name) %>%
+  mutate(screen_name = first(screen_name),
+            last_name = first(last_name),
+            first_name = first(first_name),
+            party = first(party),
+            user_created_at = first(user_created_at),
+            mean_rt = sum(retweet_count)/n(),
+            n_tweets = n(),
+            std_rt = scale(retweet_count))
+
+```
+
+```{r}
+# rank the amount of tweets by party and total 
+
+data_tweets <- data_tweets %>% 
+  group_by(party) %>%
+  mutate(rank_tweeter_party = dense_rank(desc(n_tweets))) %>%
+  ungroup() %>%
+  mutate(rank_tweeter_total = dense_rank(desc(n_tweets)))
+
+
+```
+
+```{r}
+# rank the amount of followers by party and total 
+
+data_tweets <- data_tweets %>% 
+  group_by(party) %>%
+  mutate(rank_follower_party = dense_rank(desc(followers_count))) %>%
+  ungroup() %>%
+  mutate(rank_follower_total = dense_rank(desc(followers_count)))
+
+```
+
+```{r}
+# rank the amount of retweets by party and total 
+data_tweets <- data_tweets %>% 
+  group_by(party) %>%
+  mutate(rank_retweet_party = dense_rank(desc(retweet_count))) %>%
+  ungroup() %>%
+  mutate(rank_retweet_total = dense_rank(desc(retweet_count)))
+```
+
+# Rankings
+
+## Most Followers by Party
+```{r}
+# show top tweeters (number of tweets, follower, retweets)
+
+# select party of choice
+top_tweeters <- (data_tweets %>%
+       #filter(party == "AfD") %>%
+  select(last_name, starts_with("rank_follower"), starts_with("rank_tweeter"), party, mean_rt) %>%
+  distinct())
+
+
+head(top_tweeters[order(top_tweeters$rank_follower_party),], 7)
+```
+
+## Most Followers in total
+```{r}
+# Top 5 Followers 
+head(top_tweeters[order(top_tweeters$rank_follower_total),], 7)
+```
+
+
+```{r}
+# View metrics by party
+party_of_interest <- "AfD"
+
+parties <- list("Greens" = "Greens", "AfD" = "AfD", "FDP" = "FDP", "CDU_CSU" = "CDU_CSU", "SPD" = "SPD", "SSW" = "SSW", "DieLinke" = "DieLinke")
+selectInput("selector",label = "Selector",
+      choices = parties,
+      selected = 1)
+#top_tweeters %>%
+#  filter(party == party_of_interest) %>%
+#  arrange(rank_follower_party)  # (e.g.: "rank_follower_party", "rank_follower_total", "rank_tweeter_total", "rank_tweeter_party")
+```
+
+```{r}
+renderPlot(top_tweeters %>%
+  filter(party == input$selector) %>%
+  ggplot(aes(x = reorder(last_name, -mean_rt), y = mean_rt, fill = mean_rt)) +
+  geom_col() +
+  coord_cartesian(xlim = c(1,10)))
+```
+
+```{r}
+top_tweeters %>%  
+  filter(party == "AfD") %>%
+  ggplot(aes(x = reorder(last_name, -mean_rt), y = mean_rt, fill = mean_rt)) +
+  geom_col() +
+  coord_cartesian(xlim = c(1,10))
+```
+
+
+## Most followers by Party (Rank)
+```{r}
+top_tweeters %>%
+  filter(party == party_of_interest) %>%
+  arrange(rank_follower_party) %>%
+  head(7)
+```
+
+
+## Most tweets by Party (Rank)
+```{r}
+top_tweeters %>%
+  filter(party == party_of_interest) %>%
+  arrange(rank_tweeter_party) %>%
+  head(7)
+```
+
+
+## Most retweets on average by Party
+```{r}
+top_tweeters %>%
+  filter(party == party_of_interest) %>%
+  arrange(desc(mean_rt)) %>%
+  head(7)
+```
+
+## Density plot of retweets in AfD
+```{r}
+selectInput("selector1",label = "Selector",
+      choices = parties,
+      selected = 1)
+
+renderPlot(ggplot(subset(data_tweets, party %in% input$selector1), aes(x =retweet_count)) +
+  geom_density() +
+  xlim(0,400))
+```
+
+#  Sentiment Analysis
+In the following I create a model which shall predict the retweets a specific tweets gets. Therefore the outcome variable is `retweet_count`. Factors which have an impact on the number of retweets are the following which are also indicated in current academic literature.
+
+-   no. of followers (followers_count, friends_count)
+-   name of party (party)
+-   datetime of creation (tweet_created_at_utc)/tweet_created_at_week/tweet_created_at_day_label/tweet_created_at_month_label
+-   sentiment of text in tweet
+- hashtags pro tweet
+- adressing someone (with @)
+
+```{r}
+# deutsche sentiment ausdrÃ¼cke laden
+# SentiWS - Dateien hier runterladen: https://wortschatz.uni-leipzig.de/en/download
+
+# a) negative WÃ¶rter
+# die Textdatei einlesen
+negativ <- read.table("C:/Users/ruppr/OneDrive - Universität Mannheim/MZES/Twitter_Analysis/SentiWS_v2.0_Negative.txt", fill = TRUE)
+# zuerst separieren wir die WÃ¶rter in V1
+neg1 <- negativ %>%
+  select(V1, V2) %>% #wir brauchen nur diese beiden Spalten
+  mutate(V1 = as.character(V1)) %>%  #benÃ¶tigt fÃ¼r den nÃ¤chsten Schritt
+  mutate(V1 = sub("\\|.*","\\",V1)) %>% #bereinigt ohne den Anhang nach "|"
+  `colnames<-`(c("word", "sentiment")) #Spalten werden umbenannt
+# nun separieren wir die WÃ¶rter in V2
+einzel_negativ <- strsplit(as.character(negativ$V3), split = ",") #die aufgelisteten WÃ¶rter werden getrennt
+neg2 <- data.frame(V1 = rep(negativ$V2, sapply(einzel_negativ, length)), V3 = unlist(einzel_negativ)) %>% #und mit den Werten in V2 wieder zusammengefÃ¼gt
+  `colnames<-`(c("sentiment", "word")) #Spalten werden umbenannt
+
+# b) positive WÃ¶rter
+# die Textdatei einlesen
+positiv <- read.table("C:/Users/ruppr/OneDrive - Universität Mannheim/MZES/Twitter_Analysis/SentiWS_v2.0_Positive.txt", fill = TRUE)
+# zuerst separieren wir die WÃ¶rter in V1
+pos1 <- positiv %>%
+  select(V1, V2) %>% #wir brauchen nur diese beiden Spalten
+  mutate(V1 = as.character(V1)) %>%  #benÃ¶tigt fÃ¼r den nÃ¤chsten Schritt
+  mutate(V1 = sub("\\|.*","\\",V1)) %>% #bereinigt ohne den Anhang nach "|"
+  `colnames<-`(c("word", "sentiment")) #Spalten werden umbenannt
+# nun separieren wir die WÃ¶rter in V2
+einzel_positiv <- strsplit(as.character(positiv$V3), split = ",") #die aufgelisteten WÃ¶rter werden getrennt
+pos2 <- data.frame(V1 = rep(positiv$V2, sapply(einzel_positiv, length)), V3 = unlist(einzel_positiv)) %>% #und mit den Werten in V2 wieder zusammengefÃ¼gt
+  `colnames<-`(c("sentiment", "word")) #Spalten werden umbenannt (Achtung, andere Reihenfolge)
+
+# c) gemeinsames Lexikon aus den vier Dataframes
+SentiWS_df <- rbind(neg1 %>%
+                      mutate(Polarität = "negative"),
+                    neg2%>%
+                      mutate(Polarität = "negative"),
+                    pos1 %>%
+                      mutate(Polarität = "positive"), 
+                    pos2 %>%
+                      mutate(Polarität = "positive")) %>%
+  mutate("word" = as.character(word))
+SentiWS_df <- SentiWS_df[!duplicated(SentiWS_df$word),] #manche WÃ¶rter kommen durch die Umwandlung dopppelt vor; jeweils der erste wird behalten
+```
+
+```{r}
+# create a sentiment analysis 
+
+data_tweets$text <- gsub("\\$", "", data_tweets$text)
+data_tweets <- data_tweets %>%
+  mutate(tweet_number = row_number())
+
+custom_stop_words <- bind_rows(tibble(word = c("twitter", "tco"), lexicon = c("custom")),
+                               tibble(word = stopwords("de"), lexicon = c("stopwords")))
+
+# tokenize
+tweets_words <- data_tweets %>%
+  mutate(tweet_number = row_number())%>%
+  select(tweet_number, text, tweet_created_at, party, followers_count, friends_count, characters_count)%>%
+  as_tibble() %>%
+  mutate(text = str_replace_all(text, "[^\x01-\x7F]", ""),
+         text = str_replace_all(text, "\\.|[[:digit:]]+", ""),
+         text = str_replace_all(text, "https|amp|t.co", ""),
+         text = gsub("http.*","", text),
+         text = gsub("https.*","", text),
+         text = str_replace_all(text,"&amp;|&lt;|&gt;", ""))
+
+tweets_words <- tweets_words %>%  
+  unnest_tokens(word, text) %>%
+  anti_join(custom_stop_words, by = "word")
+
+
+
+
+tweets_sentiment <- tweets_words %>%
+  left_join(SentiWS_df, by="word") 
+
+# Plot1 - Anzahl positiver & negativer WÃ¶rter pro Tag
+tweets_sentiment %>%
+  drop_na() %>%
+  mutate("tweet_created_at" = as.Date(tweet_created_at))%>%
+  group_by(tweet_created_at) %>%
+  count(Polarität) %>%
+  ggplot(aes(x=tweet_created_at, y=n, group=Polarität, color=Polarität)) +
+  geom_line(size=0.6, alpha=0.6)+
+  geom_smooth(span=0.2, se=FALSE, size=0.8)+
+  scale_colour_brewer(palette = "Set1") +
+  theme_minimal() +
+  labs(
+    x = NULL, y = NULL,
+    title = "Anzahl positiver & negativer WÃ¶rter",
+    subtitle = "aggregiert pro Tag",
+    caption = "Plot 1"
+  )
+```
+
+```{r}
+tweets_sentiment %>%
+  drop_na() %>%
+  mutate("tweet_created_at" = as.Date(tweet_created_at), "party" = party)%>%
+  group_by(party) %>%
+  ggplot(aes(x = party, y = sentiment)) +
+  geom_boxplot()+
+  #geom_smooth(span=0.2, se=FALSE, size=0.8)+
+  #scale_colour_brewer(palette = "Set1") +
+  theme_minimal() +
+  labs(
+    x = NULL, y = NULL,
+    title = "Anzahl positiver & negativer WÃ¶rter",
+    subtitle = "nach ParteizugehÃ¶rigkeit",
+    caption = "Plot 1"
+  )
+```
+
+### Violin Plot
+```{r}
+tweets_sentiment %>%
+  mutate("tweet_created_at" = as.Date(tweet_created_at), "party" = party)%>%
+  group_by(party) %>%
+  na.omit() %>%
+  ggplot(aes(x = party, y = sentiment)) + 
+  geom_violin(alpha = 0.5, width = 1, fill = 'lightblue')+
+    geom_boxplot(width = 0.25, fatten = 3, width = 0.3)+
+      geom_jitter(color="black", size=0.5, alpha = 0.03, width = 0.02) +
+    theme(axis.text.x = element_text(angle = 30, hjust = 1)) +
+
+  theme_classic()
+```
+
+
+
+```{r}
+tweets_sentiment <- tweets_sentiment %>%
+  drop_na(sentiment) %>%
+  group_by(party) %>%
+  mutate(mean_sentiment_party = mean(sentiment))
+
+
+# create mean value for sentiment in tweet
+# create total sum of positive and negative words in tweet
+tweets_sentiment <- tweets_sentiment %>%
+  group_by(tweet_number) %>%
+  mutate(mean_sentiment_tweet = mean(sentiment),
+         number_positive_words = sum(sentiment > 0),
+         number_negative_words = sum(sentiment < 0))
+
+
+# create a df without duplicates
+tweets_sentiment <- tweets_sentiment %>%
+  select(c("tweet_number", "mean_sentiment_party", "mean_sentiment_tweet", "number_positive_words", "number_negative_words", "tweet_created_at")) %>%
+  distinct()
+
+# merge sentiment analysis back onto old dataframe
+
+complete_df <- data_tweets %>% 
+  left_join(y = tweets_sentiment, by = "tweet_number")
+
+
+
+```
+
+## Create Regression model to predict retweets
+
+```{r}
+# drop observations which don't have mean_sentiment, no. pos/neg words
+complete_df <- complete_df %>% 
+  filter(!if_all(c( "mean_sentiment_party", "mean_sentiment_tweet", "number_positive_words", "number_negative_words"), is.na))
+
+rt_model <- lm(std_rt ~ followers_count + statuses_count + friends_count + mean_sentiment_party + mean_sentiment_tweet + no_hashtags + no_mentions, data = complete_df)
+
+complete_df["predictions"] <- predict(rt_model)
+
+```
+
