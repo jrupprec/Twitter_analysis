@@ -32,7 +32,6 @@ library(stopwords)
 library(stargazer)
 library(purrr)
 library(stringr)
-library(MASS)
 ```
 
 ## Reading in the Data
@@ -104,25 +103,26 @@ data_tweets <- data_tweets %>%
 # Rankings
 
 ## Most Followers by Party
+
 ```{r}
 # show top tweeters (number of tweets, follower, retweets)
 
 # select party of choice
-top_tweeters <- (data_tweets %>%
+top_tweeters <- data_tweets %>%
        #filter(party == "AfD") %>%
-  select(last_name, starts_with("rank_follower"), starts_with("rank_tweeter"), party, mean_rt) %>%
-  distinct())
+         select(last_name, starts_with("rank_follower"), starts_with("rank_tweeter"), party, mean_rt) %>%
+  distinct()
 
 
 head(top_tweeters[order(top_tweeters$rank_follower_party),], 7)
 ```
 
 ## Most Followers in total
+
 ```{r}
 # Top 5 Followers 
 head(top_tweeters[order(top_tweeters$rank_follower_total),], 7)
 ```
-
 
 ```{r}
 # View metrics by party
@@ -153,8 +153,8 @@ top_tweeters %>%
   coord_cartesian(xlim = c(1,10))
 ```
 
-
 ## Most followers by Party (Rank)
+
 ```{r}
 top_tweeters %>%
   filter(party == party_of_interest) %>%
@@ -162,8 +162,8 @@ top_tweeters %>%
   head(7)
 ```
 
-
 ## Most tweets by Party (Rank)
+
 ```{r}
 top_tweeters %>%
   filter(party == party_of_interest) %>%
@@ -171,8 +171,8 @@ top_tweeters %>%
   head(7)
 ```
 
-
 ## Most retweets on average by Party
+
 ```{r}
 top_tweeters %>%
   filter(party == party_of_interest) %>%
@@ -181,6 +181,7 @@ top_tweeters %>%
 ```
 
 ## Density plot of retweets in AfD
+
 ```{r}
 selectInput("selector1",label = "Selector",
       choices = parties,
@@ -191,15 +192,16 @@ renderPlot(ggplot(subset(data_tweets, party %in% input$selector1), aes(x =retwee
   xlim(0,400))
 ```
 
-#  Sentiment Analysis
+# Sentiment Analysis
+
 In the following I create a model which shall predict the retweets a specific tweets gets. Therefore the outcome variable is `retweet_count`. Factors which have an impact on the number of retweets are the following which are also indicated in current academic literature.
 
 -   no. of followers (followers_count, friends_count)
 -   name of party (party)
 -   datetime of creation (tweet_created_at_utc)/tweet_created_at_week/tweet_created_at_day_label/tweet_created_at_month_label
 -   sentiment of text in tweet
-- hashtags pro tweet
-- adressing someone (with @)
+-   hashtags pro tweet
+-   adressing someone (with \@)
 
 ```{r}
 # deutsche sentiment ausdrÃ¼cke laden
@@ -316,6 +318,7 @@ tweets_sentiment %>%
 ```
 
 ### Violin Plot
+
 ```{r}
 tweets_sentiment %>%
   mutate("tweet_created_at" = as.Date(tweet_created_at), "party" = party)%>%
@@ -329,8 +332,6 @@ tweets_sentiment %>%
 
   theme_classic()
 ```
-
-
 
 ```{r}
 tweets_sentiment <- tweets_sentiment %>%
@@ -364,6 +365,36 @@ complete_df <- data_tweets %>%
 
 ## Create Regression model to predict retweets
 
+### inspect x-variables
+```{r}
+ggplot(complete_df, aes(x = followers_count))+
+  geom_density()+ # extreme kurtosis 
+  labs(title = "Density: Number of Followers")
+
+ggplot(complete_df, aes(x = friends_count))+
+  geom_density()+ # extreme kurtosis 
+  labs(title = "Density: Number of Friends")
+
+complete_df_hashtags <- complete_df %>%
+  count(no_hashtags) %>%
+  mutate(perc = n/nrow(complete_df))
+
+ggplot(complete_df_hashtags, aes(x = no_hashtags, y = perc)) +
+  geom_bar(stat = "identity") +
+  xlim(-1,10) +
+  labs(title = "Share of Number of Hashtags")
+
+complete_df_mentions <- complete_df %>%
+  count(no_mentions) %>%
+  mutate(perc = n/nrow(complete_df))
+
+ggplot(complete_df_mentions, aes(x = no_mentions, y = perc)) +
+  geom_bar(stat = "identity") +
+  xlim(-1,10) +
+  labs(title = "Share of Number of Mentions")
+```
+
+
 ```{r}
 # drop observations which don't have mean_sentiment, no. pos/neg words
 complete_df <- complete_df %>% 
@@ -377,14 +408,15 @@ ggplot(complete_df, aes(x = log_retweets))+
   xlim(0,10) # extreme kurtosis
 
 ggplot(complete_df, aes(x = log_retweets))+
-  geom_histogram(bins = 50) # extreme kurtosis
-  
-rt_model <- glm.nb(log_retweets ~ followers_count + statuses_count + friends_count + mean_sentiment_party + mean_sentiment_tweet + no_hashtags + no_mentions, data = complete_df)
+  geom_histogram(bins = 50) + # extreme kurtosis 
+  xlim(-1,5)
+
+require(sandwich)
+require(msm)
+
+rt_model <- glm(retweet_count ~ followers_count + statuses_count + friends_count + mean_sentiment_party + mean_sentiment_tweet + no_hashtags + no_mentions, family = "poisson", data = complete_df)
 
 
 summary(rt_model)
 
 ```
-
-
-
