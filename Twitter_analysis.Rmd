@@ -357,10 +357,7 @@ tweets_sentiment <- tweets_sentiment %>%
 # merge sentiment analysis back onto old dataframe
 
 complete_df <- data_tweets %>% 
-  left_join(y = tweets_sentiment, by = "tweet_number")
-
-
-
+  merge(y = tweets_sentiment, by = "tweet_number")
 ```
 
 ## Create Regression model to predict retweets
@@ -414,9 +411,25 @@ ggplot(complete_df, aes(x = log_retweets))+
 require(sandwich)
 require(msm)
 
+# split into training and test set (80/20)
+set.seed(20)
+sample <- sample(c(TRUE, FALSE), nrow(complete_df), replace = TRUE, prob = c(0.8,0.2))
+data_tweets_test <- complete_df[!sample,]
+complete_df <- complete_df[sample,]
+
 rt_model <- glm(retweet_count ~ followers_count + statuses_count + friends_count + mean_sentiment_party + mean_sentiment_tweet + no_hashtags + no_mentions, family = "poisson", data = complete_df)
 
 
 summary(rt_model)
 
 ```
+
+```{r fitted values}
+data_tweets_test$pred.retweet_count <- round(predict(rt_model, newdata = data_tweets_test, type = "response"))
+```
+
+```{r accuracy measurement}
+
+```
+
+
