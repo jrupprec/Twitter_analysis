@@ -417,19 +417,32 @@ sample <- sample(c(TRUE, FALSE), nrow(complete_df), replace = TRUE, prob = c(0.8
 data_tweets_test <- complete_df[!sample,]
 complete_df <- complete_df[sample,]
 
-rt_model <- glm(retweet_count ~ followers_count + statuses_count + friends_count + mean_sentiment_party + mean_sentiment_tweet + no_hashtags + no_mentions, family = "poisson", data = complete_df)
+rt_model_poi <- glm(retweet_count ~ followers_count + statuses_count + friends_count + mean_sentiment_party + mean_sentiment_tweet + no_hashtags + no_mentions, family = "poisson", data = complete_df)
 
 
-summary(rt_model)
+summary(rt_model_poi)
 
 ```
 
 ```{r fitted values}
-data_tweets_test$pred.retweet_count <- round(predict(rt_model, newdata = data_tweets_test, type = "response"))
+data_tweets_test$pred.retweet_count <- round(predict(rt_model_poi, newdata = data_tweets_test, type = "response"))
 ```
 
 ```{r accuracy measurement}
+library(msme)
+P__disp(rt_model_poi) # very bad fit
+# if the dp<1 your model is good;conversively, if the dp>1 the model is not fitting well your data
 
+# -> sign of overdispersion, therefore use negative binomial
 ```
 
+```{r negative binomial}
+rt_model_nb <- glm.nb(retweet_count ~ followers_count + statuses_count + friends_count + mean_sentiment_party + mean_sentiment_tweet + no_hashtags + no_mentions, data = complete_df)
+
+summary(rt_model_nb)
+
+pchisq(2 * (logLik(rt_model_nb) - logLik(rt_model_poi)), df = 1, lower.tail = FALSE)
+
+# This strongly suggests the negative binomial model, estimating the dispersion parameter, is more appropriate than the Poisson model
+```
 
