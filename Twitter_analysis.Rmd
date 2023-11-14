@@ -7,7 +7,6 @@ editor: visual
 toc: yes
 editor_options: 
   chunk_output_type: console
-
 runtime: shiny
 ---
 
@@ -32,6 +31,13 @@ library(stopwords)
 library(stargazer)
 library(purrr)
 library(stringr)
+
+library(tidymodels)  # for the parsnip package, along with the rest of tidymodels
+
+# Helper packages
+library(readr)       # for importing data
+library(broom.mixed) # for converting bayesian models to tidy tibbles
+library(dotwhisker)  # for visualizing regression results
 ```
 
 ## Reading in the Data
@@ -430,6 +436,24 @@ vif(rt_model_poi) # no multicollinearity problem
 data_tweets_test$pred.retweet_count_poi <- round(predict(rt_model_poi, newdata = data_tweets_test, type = "response"))
 ```
 
+```{r}
+# standardized residuals vs. fitted plot
+plot(rt_model_poi, which = 1, main = "Standardized Residuals Plot")
+
+
+std.resid <- rstandard(rt_model_poi) 
+
+#Use a histogram to visualise standardised residuals.
+ggplot(data.frame(std.resid), aes(x = std.resid)) +
+  geom_histogram(binwidth = 1.0, fill = "green") +
+  xlab("Standardized Residue") +
+  ylab("Count1") +
+  ggtitle("Histogram of Standardized Residue")
+```
+
+
+
+
 ```{r accuracy measurement}
 library(msme)
 P__disp(rt_model_poi) # very bad fit
@@ -452,4 +476,13 @@ pchisq(2 * (logLik(rt_model_nb) - logLik(rt_model_poi)), df = 1, lower.tail = FA
 
 ```{r fitted values nb}
 data_tweets_test$pred.retweet_count_nb <- round(predict(rt_model_nb, newdata = data_tweets_test, type = "response"))
+
+# standardized residuals vs. fitted plot
+plot(rt_model_nb, which = 1, main = "Standardized Residuals Plot")
 ```
+
+# Build a tidymodel
+```{r}
+glimpse(complete_df)
+```
+
