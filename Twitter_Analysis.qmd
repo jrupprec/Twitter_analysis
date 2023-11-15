@@ -1,13 +1,19 @@
 ---
 title: "Twitter_Analysis"
-format: pdf
+format: html
 editor: visual
 toc: true
 ---
 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE, fig.width=12, fig.height=8)
+```
+
 # Introduction
+
 ```{r}
 #load libraries
+library(knitr)
 library(feather)
 library(dplyr)
 library(ggplot2)
@@ -17,10 +23,11 @@ library(glue)
 library(stringr)
 library(textdata)
 library(stopwords)
+library(stargazer)
 ```
 
-
 ## Reading in the Data
+
 ```{r}
 # Daten Einlesen ####
 data_tweets <- read_feather("data_tweets_de_bundestag_session_20.feather")
@@ -45,9 +52,10 @@ data_tweets <- data_tweets %>%
             first_name = first(first_name),
             party = first(party),
             user_created_at = first(user_created_at),
+            mean_rt = sum(retweet_count)/n(),
             n_tweets = n())
-```
 
+```
 
 ```{r}
 # rank the amount of tweets by party and total 
@@ -60,7 +68,6 @@ data_tweets <- data_tweets %>%
 
 
 ```
-
 
 ```{r}
 # rank the amount of followers by party and total 
@@ -82,20 +89,32 @@ data_tweets <- data_tweets %>%
   mutate(rank_retweet_total = dense_rank(desc(retweet_count)))
 ```
 
-
+# Ranking by Most Followers
 
 ```{r}
 # show top tweeters (number of tweets, follower, retweets)
 
-View(data_tweets %>%
+# select party of choice
+top_tweeters <- (data_tweets %>%
        #filter(party == "AfD") %>%
-  select(last_name, starts_with("rank_follower"), starts_with("rank_tweeter"), party) %>%
+  select(last_name, starts_with("rank_follower"), starts_with("rank_tweeter"), party, mean_rt) %>%
   distinct())
 
-# eventually problem with retweet count
-  
+
+head(top_tweeters[order(top_tweeters$rank_follower_party),], 7)
 ```
 
+```{r}
+# Top 5 Followers 
+head(top_tweeters[order(top_tweeters$rank_follower_total),], 7)
+```
+
+```{r}
+top_tweeters %>%
+  filter(party == "AfD") %>%
+  sor
+  head()
+```
 
 ```{r}
 # interested in AfD retweets (histogram)
@@ -103,44 +122,44 @@ ggplot(subset(data_tweets, party %in% c("AfD")), aes(x =retweet_count)) +
   geom_density() +
   xlim(0,400)
 ```
-In the following I create a model which shall predict the retweets a specific tweets gets.
-Therefore the outcome variable is `retweet_count`. Factors which have an impact on the number of retweets are the following which are also indicated in current academic literature.
 
-- no. of followers (followers_count, friends_count)
-- name of party (party)
-- datetime of creation (tweet_created_at_utc)/tweet_created_at_week/tweet_created_at_day_label/tweet_created_at_month_label
-- sentiment of text in tweet
+In the following I create a model which shall predict the retweets a specific tweets gets. Therefore the outcome variable is `retweet_count`. Factors which have an impact on the number of retweets are the following which are also indicated in current academic literature.
+
+-   no. of followers (followers_count, friends_count)
+-   name of party (party)
+-   datetime of creation (tweet_created_at_utc)/tweet_created_at_week/tweet_created_at_day_label/tweet_created_at_month_label
+-   sentiment of text in tweet
 
 ```{r}
-# deutsche sentiment ausdrücke laden
+# deutsche sentiment ausdrÃ¼cke laden
 # SentiWS - Dateien hier runterladen: https://wortschatz.uni-leipzig.de/en/download
 
-# a) negative Wörter
+# a) negative WÃ¶rter
 # die Textdatei einlesen
 negativ <- read.table("C:/Users/ruppr/OneDrive - Universität Mannheim/MZES/Twitter_Analysis/SentiWS_v2.0_Negative.txt", fill = TRUE)
-# zuerst separieren wir die Wörter in V1
+# zuerst separieren wir die WÃ¶rter in V1
 neg1 <- negativ %>%
   select(V1, V2) %>% #wir brauchen nur diese beiden Spalten
-  mutate(V1 = as.character(V1)) %>%  #benötigt für den nächsten Schritt
+  mutate(V1 = as.character(V1)) %>%  #benÃ¶tigt fÃ¼r den nÃ¤chsten Schritt
   mutate(V1 = sub("\\|.*","\\",V1)) %>% #bereinigt ohne den Anhang nach "|"
   `colnames<-`(c("word", "sentiment")) #Spalten werden umbenannt
-# nun separieren wir die Wörter in V2
-einzel_negativ <- strsplit(as.character(negativ$V3), split = ",") #die aufgelisteten Wörter werden getrennt
-neg2 <- data.frame(V1 = rep(negativ$V2, sapply(einzel_negativ, length)), V3 = unlist(einzel_negativ)) %>% #und mit den Werten in V2 wieder zusammengefügt
+# nun separieren wir die WÃ¶rter in V2
+einzel_negativ <- strsplit(as.character(negativ$V3), split = ",") #die aufgelisteten WÃ¶rter werden getrennt
+neg2 <- data.frame(V1 = rep(negativ$V2, sapply(einzel_negativ, length)), V3 = unlist(einzel_negativ)) %>% #und mit den Werten in V2 wieder zusammengefÃ¼gt
   `colnames<-`(c("sentiment", "word")) #Spalten werden umbenannt
 
-# b) positive Wörter
+# b) positive WÃ¶rter
 # die Textdatei einlesen
 positiv <- read.table("C:/Users/ruppr/OneDrive - Universität Mannheim/MZES/Twitter_Analysis/SentiWS_v2.0_Positive.txt", fill = TRUE)
-# zuerst separieren wir die Wörter in V1
+# zuerst separieren wir die WÃ¶rter in V1
 pos1 <- positiv %>%
   select(V1, V2) %>% #wir brauchen nur diese beiden Spalten
-  mutate(V1 = as.character(V1)) %>%  #benötigt für den nächsten Schritt
+  mutate(V1 = as.character(V1)) %>%  #benÃ¶tigt fÃ¼r den nÃ¤chsten Schritt
   mutate(V1 = sub("\\|.*","\\",V1)) %>% #bereinigt ohne den Anhang nach "|"
   `colnames<-`(c("word", "sentiment")) #Spalten werden umbenannt
-# nun separieren wir die Wörter in V2
-einzel_positiv <- strsplit(as.character(positiv$V3), split = ",") #die aufgelisteten Wörter werden getrennt
-pos2 <- data.frame(V1 = rep(positiv$V2, sapply(einzel_positiv, length)), V3 = unlist(einzel_positiv)) %>% #und mit den Werten in V2 wieder zusammengefügt
+# nun separieren wir die WÃ¶rter in V2
+einzel_positiv <- strsplit(as.character(positiv$V3), split = ",") #die aufgelisteten WÃ¶rter werden getrennt
+pos2 <- data.frame(V1 = rep(positiv$V2, sapply(einzel_positiv, length)), V3 = unlist(einzel_positiv)) %>% #und mit den Werten in V2 wieder zusammengefÃ¼gt
   `colnames<-`(c("sentiment", "word")) #Spalten werden umbenannt (Achtung, andere Reihenfolge)
 
 # c) gemeinsames Lexikon aus den vier Dataframes
@@ -153,9 +172,8 @@ SentiWS_df <- rbind(neg1 %>%
                     pos2 %>%
                       mutate(Polarität = "positive")) %>%
   mutate("word" = as.character(word))
-SentiWS_df <- SentiWS_df[!duplicated(SentiWS_df$word),] #manche Wörter kommen durch die Umwandlung dopppelt vor; jeweils der erste wird behalten
+SentiWS_df <- SentiWS_df[!duplicated(SentiWS_df$word),] #manche WÃ¶rter kommen durch die Umwandlung dopppelt vor; jeweils der erste wird behalten
 ```
-
 
 ```{r}
 # create a sentiment analysis 
@@ -189,7 +207,7 @@ tweets_words <- tweets_words %>%
 tweets_sentiment <- tweets_words %>%
   left_join(SentiWS_df, by="word") 
 
-# Plot1 - Anzahl positiver & negativer Wörter pro Tag
+# Plot1 - Anzahl positiver & negativer WÃ¶rter pro Tag
 tweets_sentiment %>%
   drop_na() %>%
   mutate("tweet_created_at" = as.Date(tweet_created_at))%>%
@@ -202,12 +220,11 @@ tweets_sentiment %>%
   theme_minimal() +
   labs(
     x = NULL, y = NULL,
-    title = "Anzahl positiver & negativer Wörter",
+    title = "Anzahl positiver & negativer WÃ¶rter",
     subtitle = "aggregiert pro Tag",
     caption = "Plot 1"
   )
 ```
-
 
 ```{r}
 tweets_sentiment %>%
@@ -221,8 +238,8 @@ tweets_sentiment %>%
   theme_minimal() +
   labs(
     x = NULL, y = NULL,
-    title = "Anzahl positiver & negativer Wörter",
-    subtitle = "nach Parteizugehörigkeit",
+    title = "Anzahl positiver & negativer WÃ¶rter",
+    subtitle = "nach ParteizugehÃ¶rigkeit",
     caption = "Plot 1"
   )
 
@@ -256,4 +273,3 @@ complete_df <- data_tweets %>%
 
 
 ```
-
